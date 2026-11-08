@@ -1,16 +1,8 @@
-# Compiled class file
+# Java / Gradle 模板（沿用仓库原有规则）
 *.class
-
-# Log file
 *.log
-
-# BlueJ files
 *.ctxt
-
-# Mobile Tools for Java (J2ME)
 .mtj.tmp/
-
-# Package Files #
 *.jar
 *.war
 *.nar
@@ -18,10 +10,22 @@
 *.zip
 *.tar.gz
 *.rar
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
 
-# Kotlin Gradle plugin data, see https://kotlinlang.org/docs/whatsnew20.html#new-directory-for-kotlin-data-in-gradle-projects
+# Gradle Wrapper jar 必须随仓库提交
+!gradle/wrapper/gradle-wrapper.jar
+
+# 构建产物与本地工具链（不上传）
+build/
+out/
+.gradle/
 .kotlin/
+.tools/
+.idea/
+*.iml
+local.properties
+*.exe
+*.msi
+.DS_Store
+Thumbs.db
