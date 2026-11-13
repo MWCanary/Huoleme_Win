@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "com.huoleme.app"
-version = "1.3.6"
+version = "1.3.7 Dev"
 
 dependencies {
     implementation(compose.desktop.currentOs)
@@ -49,13 +49,30 @@ val runtimeJvmOptions = listOf(
     "-Dsun.java2d.uiScale.enabled=true",
     "-Dawt.useSystemAAFontSettings=lcd",
     "-Dswing.aatext=true",
-    "-Xms32m",
-    "-Xmx384m",
+    // A small initial heap and tighter caps cut the JVM's committed footprint
+    // without changing what the app does. The heap still grows on demand up to
+    // Xmx when the Compose window is shown.
+    "-Xms12m",
+    "-Xmx192m",
     "-XX:+UseSerialGC",
-    "-XX:MaxMetaspaceSize=128m",
-    "-XX:ReservedCodeCacheSize=64m",
+    // Return free heap to the OS promptly. -ShrinkHeapInSteps makes SerialGC
+    // shrink to the target size in one step instead of over several GCs.
+    "-XX:MaxHeapFreeRatio=10",
+    "-XX:MinHeapFreeRatio=3",
+    "-XX:-ShrinkHeapInSteps",
+    // Smaller per-thread stacks (reminder + IPC + AWT are few and light).
+    "-XX:ThreadStackSize=768",
+    "-XX:MaxMetaspaceSize=96m",
+    "-XX:CompressedClassSpaceSize=64m",
+    "-XX:ReservedCodeCacheSize=20m",
+    "-XX:TieredStopAtLevel=1",
+    "-XX:CICompilerCount=2",
+    "-XX:-UsePerfData",
+    // Only disables external diagnostic agents attaching to the process.
+    "-XX:+DisableAttachMechanism",
+    "-Dsun.java2d.d3d=false",
     "-Dkotlinx.coroutines.scheduler.core.pool.size=1",
-    "-Dkotlinx.coroutines.scheduler.max.pool.size=2"
+    "-Dkotlinx.coroutines.scheduler.max.pool.size=1"
 )
 
 compose.desktop {
@@ -67,7 +84,7 @@ compose.desktop {
             // Compose's createDistributable requires WiX on Windows; use packagePortable below.
             targetFormats(TargetFormat.AppImage)
             packageName = "活了么"
-            packageVersion = "1.3.6"
+            packageVersion = "1.3.7 Dev"
             description = "活了么 Windows 桌面端"
             copyright = "© 2026 活了么"
             vendor = "活了么"
@@ -101,10 +118,12 @@ val prepareJpackageInput = tasks.register<Sync>("prepareJpackageInput") {
     dependsOn(tasks.named("jar"))
     from(tasks.named<Jar>("jar"))
     from(configurations.runtimeClasspath)
-    // Empty compatibility stubs produced by mixed lifecycle/navigationevent
-    // versions: no classes, only a manifest. Skip them in the image.
-    exclude("**/lifecycle-runtime-compose-desktop-2.9.6.jar")
-    exclude("**/navigationevent-compose-desktop-1.1.0.jar")
+    // Version-conflict placeholders: these jars contain no classes, only a
+    // manifest / kotlin_module / LICENSE. jpackage would otherwise add them to
+    // the generated .cfg classpath and ship ~10 KB of dead weight.
+    exclude("**/runtime-desktop-1.12.2.jar")
+    exclude("**/runtime-saveable-desktop-1.12.2.jar")
+    exclude("**/savedstate-compose-desktop-1.3.6.jar")
     into(jpackageInputDir)
 }
 
@@ -141,7 +160,7 @@ val createSlimRuntime = tasks.register<Exec>("createSlimRuntime") {
             "--strip-debug",
             "--no-header-files",
             "--no-man-pages",
-            "--compress=zip-6"
+            "--compress=zip-9"
         )
     }
 }
@@ -167,7 +186,11 @@ tasks.register<Exec>("packagePortable") {
             jpackage.absolutePath,
             "--type", "app-image",
             "--name", "活了么",
-            "--app-version", project.version.toString(),
+            // Windows jpackage requires a numeric --app-version (major.minor.micro);
+            // strip any non-numeric suffix (e.g. "1.3.7 Dev" -> "1.3.7") for the PE
+            // version resource. The human-visible version stays "1.3.7 Dev" everywhere else.
+            "--app-version", Regex("""\d+(\.\d+)*""").find(project.version.toString())?.value
+                ?: project.version.toString(),
             "--dest", jpackageOutputDir.get().asFile.absolutePath,
             "--input", jpackageInputDir.get().asFile.absolutePath,
             "--main-jar", tasks.named<Jar>("jar").get().archiveFileName.get(),
@@ -176,12 +199,32 @@ tasks.register<Exec>("packagePortable") {
             "--icon", file("src/main/resources/icon.ico").absolutePath,
             "--vendor", "活了么",
             "--description", "活了么 Windows 桌面端",
-            "--copyright", "© 2026 活了么"
+            "--copyright", "© 2026 活了么",
+            // Embed a PerMonitorV2 DPI-aware manifest so Windows renders the window
+            // at native resolution instead of bitmap-scaling it (the cause of the
+            // previously reported blurry/fuzzy text on 125% / 150% displays).
+            "--resource-dir", file("packaging").absolutePath,
         )
         runtimeJvmOptions.forEach { option ->
             args += "--java-options"
             args += option
         }
         commandLine(*args.toTypedArray())
+    }
+
+    // Trim development/optional files from the bundled runtime. None of them is
+    // loaded by jpackage's launcher, and every MB counts for the installer.
+    doLast {
+        val runtimeRoot = jpackageOutputDir.get().asFile.resolve("活了么").resolve("runtime")
+        listOf(
+            "lib/jvm.lib",
+            "lib/jrt-fs.jar",
+            "lib/fontconfig.properties.src",
+            "lib/psfont.properties.ja",
+            "lib/psfontj2d.properties",
+            "lib/security/public_suffix_list.dat",
+            "lib/classlist",
+            "legal"  // module licence texts, never read at runtime
+        ).forEach { relative -> delete(runtimeRoot.resolve(relative)) }
     }
 }

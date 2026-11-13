@@ -47,6 +47,25 @@ class BackupServiceTest {
     }
 
     @Test
+    fun arbitraryMinuteReminderTimeRoundTrips() {
+        // Minutes are no longer restricted to multiples of 5; every value 0..59
+        // must survive export/import and roaming-data coercion untouched.
+        listOf(0, 1, 3, 7, 13, 29, 58, 59).forEach { minute ->
+            val json = BackupService.export(
+                records = emptyList(),
+                settings = AppSettings(notificationHour = 7, notificationMinute = minute)
+            )
+            val parsed = BackupService.parse(json)
+            assertEquals(7, parsed.settings.notificationHour)
+            assertEquals(minute, parsed.settings.notificationMinute)
+            assertEquals(
+                minute,
+                RoamingSettings(notificationMinute = minute).toAppSettings().notificationMinute
+            )
+        }
+    }
+
+    @Test
     fun parsesAndroidStyleRecordArray() {
         val json = """
             [

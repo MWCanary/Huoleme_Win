@@ -1,5 +1,8 @@
 package com.huoleme.app
 
+import java.net.InetAddress
+import java.net.ServerSocket
+import java.net.Socket
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.file.Files
@@ -7,15 +10,21 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 
 /**
- * One app instance per Windows user. Multiple instances would create multiple
- * tray icons and could race on the JSON record file.
+ * One app instance per Windows user, plus a loopback wake-up channel.
  *
- * The scheduled-task reminder process uses [isAnotherInstanceRunning] as a
- * read-only probe: it must not take the lock away from the main app.
+ * A second launch must never initialize AWT/Swing/Compose: doing so (and showing
+ * a modal "already running" dialog) used to leave a ~50 MB JVM alive forever on
+ * every double-click. The secondary process now just sends one byte to the
+ * primary instance and exits immediately.
  */
 object SingleInstance {
+    /** Set by the primary instance; invoked on its IPC thread. */
+    @Volatile
+    var onShowRequest: (() -> Unit)? = null
+
     private var channel: FileChannel? = null
     private var lock: FileLock? = null
+    private var server: ServerSocket? = null
 
     fun acquire(): Boolean {
         if (lock != null) return true
@@ -34,45 +43,64 @@ object SingleInstance {
         return true
     }
 
-    /**
-     * True when another live process currently owns the instance lock.
-     * Never keeps the lock: the probe is released immediately.
-     */
-    fun isAnotherInstanceRunning(): Boolean {
-        if (lock != null) return false
-        return runCatching {
-            FileChannel.open(
-                lockFile(),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE
-            ).use { probeChannel ->
-                val probeLock = probeChannel.tryLock()
-                if (probeLock == null) {
-                    true
-                } else {
-                    probeLock.release()
-                    false
+    /** Primary instance: listen for wake-up requests from later launches. */
+    fun startIpcServer() {
+        if (server != null) return
+        runCatching {
+            val socket = ServerSocket(0, 8, InetAddress.getLoopbackAddress())
+            server = socket
+            Files.writeString(portFile(), socket.localPort.toString())
+            Thread({
+                while (!socket.isClosed) {
+                    runCatching {
+                        socket.accept().use { peer ->
+                            peer.soTimeout = 1_000
+                            runCatching { peer.getInputStream().read() }
+                            onShowRequest?.invoke()
+                        }
+                    }
                 }
+            }, "huoleme-single-instance").apply { isDaemon = true }.start()
+        }
+    }
+
+    /** Secondary instance: ask the running app to show its window. Never blocks. */
+    fun notifyRunning(): Boolean {
+        val port = runCatching {
+            Files.readString(portFile()).trim().toInt()
+        }.getOrNull() ?: return false
+        return runCatching {
+            Socket(InetAddress.getLoopbackAddress(), port).use { peer ->
+                peer.soTimeout = 1_000
+                peer.getOutputStream().apply { write(1); flush() }
             }
+            true
         }.getOrDefault(false)
     }
 
     fun release() {
+        onShowRequest = null
+        runCatching { server?.close() }
+        server = null
+        runCatching { Files.deleteIfExists(portFile()) }
         runCatching { lock?.release() }
         runCatching { channel?.close() }
         lock = null
         channel = null
     }
 
-    private fun lockFile(): Path {
-        val appData = System.getenv("LOCALAPPDATA")
-        val base = if (!appData.isNullOrBlank()) {
-            Path.of(appData)
+    private fun baseDir(): Path {
+        val local = System.getenv("LOCALAPPDATA")
+        val base = if (!local.isNullOrBlank()) {
+            Path.of(local)
         } else {
             Path.of(System.getProperty("java.io.tmpdir"))
         }
         val directory = base.resolve(AppInfo.DATA_DIR_NAME)
         Files.createDirectories(directory)
-        return directory.resolve("app-instance.lock")
+        return directory
     }
+
+    private fun lockFile(): Path = baseDir().resolve("app-instance.lock")
+    private fun portFile(): Path = baseDir().resolve("app-instance.port")
 }

@@ -5,6 +5,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,19 +27,22 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -59,15 +65,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.huoleme.app.data.AppState
+import javax.imageio.ImageIO
 import com.huoleme.app.data.DarkModePreference
 import com.huoleme.app.theme.AppThemeMode
 import com.huoleme.app.theme.BluePrimary
@@ -107,6 +117,8 @@ fun SettingsPage(
     val scrollState = rememberScrollState()
     var testamentInput by remember { mutableStateOf(settings.testament) }
     var showContactDialog by remember { mutableStateOf(false) }
+    var showDownloadDialog by remember { mutableStateOf(false) }
+    var showSponsorDialog by remember { mutableStateOf(false) }
     val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(settings.testament) {
@@ -357,45 +369,18 @@ fun SettingsPage(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TimeStepper(
-                    value = settings.notificationHour,
-                    contentDescriptionDecrease = "减少小时",
-                    contentDescriptionIncrease = "增加小时",
-                    onDecrease = {
-                        val hour = (settings.notificationHour - 1 + 24) % 24
-                        appState.updateSettings { it.copy(notificationHour = hour) }
-                    },
-                    onIncrease = {
-                        val hour = (settings.notificationHour + 1) % 24
-                        appState.updateSettings { it.copy(notificationHour = hour) }
+            // A single HH:MM field replaces the old hour/minute steppers and
+            // the extra dialog: any minute can be typed directly.
+            NotificationTimeField(
+                hour = settings.notificationHour,
+                minute = settings.notificationMinute,
+                onTimeChange = { hour, minute ->
+                    appState.updateSettings {
+                        it.copy(notificationHour = hour, notificationMinute = minute)
                     }
-                )
-                Text(
-                    text = ":",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.width(20.dp)
-                )
-                TimeStepper(
-                    value = settings.notificationMinute,
-                    contentDescriptionDecrease = "减少分钟",
-                    contentDescriptionIncrease = "增加分钟",
-                    onDecrease = {
-                        val minute = (settings.notificationMinute - 5 + 60) % 60
-                        appState.updateSettings { it.copy(notificationMinute = minute) }
-                    },
-                    onIncrease = {
-                        val minute = (settings.notificationMinute + 5) % 60
-                        appState.updateSettings { it.copy(notificationMinute = minute) }
-                    }
-                )
-            }
+                    onMessage(Strings.notificationTimeSaved.format(hour, minute))
+                }
+            )
         }
 
         Text(
@@ -599,7 +584,7 @@ fun SettingsPage(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.medium)
-                        .clickable { uriHandler.openUri("https://huoleme.pages.dev/download") }
+                        .clickable { showDownloadDialog = true }
                         .padding(vertical = 12.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -658,15 +643,39 @@ fun SettingsPage(
                     )
                 }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
-                Text(
-                    text = Strings.aboutDesc,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    lineHeight = 18.sp
-                )
             }
         }
+
+        // Android-style author card at the very bottom of the settings page.
+        AuthorSponsorCard(onSponsor = { showSponsorDialog = true })
+    }
+
+    if (showDownloadDialog) {
+        AlertDialog(
+            onDismissRequest = { showDownloadDialog = false },
+            title = { Text(Strings.downloadConfirmTitle) },
+            text = { Text(Strings.downloadConfirmText, style = MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDownloadDialog = false
+                    uriHandler.openUri("https://huoleme.pages.dev/download")
+                }) {
+                    Text(Strings.downloadConfirmOpen)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDownloadDialog = false }) {
+                    Text(Strings.cancel)
+                }
+            }
+        )
+    }
+
+    if (showSponsorDialog) {
+        SponsorDialog(
+            onDismiss = { showSponsorDialog = false },
+            onOpenLink = { uriHandler.openUri(Strings.sponsorAlipayUrl) }
+        )
     }
 
     if (showContactDialog) {
@@ -1013,41 +1022,195 @@ private fun ContactButton(label: String, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Author card: title + intro on the left, sponsor pill on the right.
+ * Colors come from the active MaterialTheme, so in every light/dark and accent
+ * scheme it matches the rest of the settings page instead of clashing with it.
+ */
 @Composable
-private fun TimeStepper(
-    value: Int,
-    contentDescriptionDecrease: String,
-    contentDescriptionIncrease: String,
-    onDecrease: () -> Unit,
-    onIncrease: () -> Unit
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        FilledTonalIconButton(
-            onClick = onDecrease,
-            modifier = Modifier.size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = contentDescriptionDecrease,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-        Text(
-            text = "%02d".format(value),
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.width(40.dp)
+private fun AuthorSponsorCard(onSponsor: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         )
-        FilledTonalIconButton(
-            onClick = onIncrease,
-            modifier = Modifier.size(48.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowUp,
-                contentDescription = contentDescriptionIncrease,
-                modifier = Modifier.size(20.dp)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = Strings.authorCardTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = Strings.aboutDesc,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 20.sp
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            OutlinedButton(
+                onClick = onSponsor,
+                shape = CircleShape,
+                border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Favorite,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = Strings.sponsorAuthor,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+            }
         }
     }
+}
+
+/** Shows the Alipay sponsorship QR code bundled as a resource. */
+@Composable
+private fun SponsorDialog(onDismiss: () -> Unit, onOpenLink: () -> Unit) {
+    val qr = remember {
+        runCatching {
+            AppInfo::class.java.getResourceAsStream("/sponsor_qr.png")?.use { stream ->
+                ImageIO.read(stream).toComposeImageBitmap()
+            }
+        }.getOrNull()
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(Strings.sponsorDialogTitle) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = Strings.sponsorDialogHint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                if (qr != null) {
+                    Image(
+                        bitmap = qr,
+                        contentDescription = "支付宝赞助二维码",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                Text(
+                    text = Strings.sponsorAlipayUrl,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(Strings.confirm)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onDismiss(); onOpenLink() }) {
+                Text(Strings.openAlipayLink)
+            }
+        }
+    )
+}
+
+private fun parseNotificationTime(input: String): Pair<Int, Int>? {
+    val parts = input.trim().split(':')
+    if (parts.size != 2) return null
+    val hour = parts[0].toIntOrNull() ?: return null
+    val minute = parts[1].toIntOrNull() ?: return null
+    return if (hour in 0..23 && minute in 0..59) hour to minute else null
+}
+
+/**
+ * The single HH:MM input box for the daily reminder time. A complete, valid
+ * time is saved as it is typed; pressing Enter also accepts short forms such
+ * as 7:3 and normalises them to 07:03. Any minute 00-59 is accepted.
+ */
+@Composable
+private fun NotificationTimeField(
+    hour: Int,
+    minute: Int,
+    onTimeChange: (Int, Int) -> Unit
+) {
+    var text by remember(hour, minute) { mutableStateOf("%02d:%02d".format(hour, minute)) }
+    var invalid by remember { mutableStateOf(false) }
+
+    fun commit() {
+        val parsed = parseNotificationTime(text)
+        if (parsed == null) {
+            invalid = true
+            return
+        }
+        invalid = false
+        text = "%02d:%02d".format(parsed.first, parsed.second)
+        if (parsed.first != hour || parsed.second != minute) {
+            onTimeChange(parsed.first, parsed.second)
+        }
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { input ->
+            text = input.take(5)
+            val parsed = parseNotificationTime(text)
+            val minuteComplete = text.substringAfter(':', "").length == 2
+            if (parsed != null && minuteComplete) {
+                invalid = false
+                if (parsed.first != hour || parsed.second != minute) {
+                    onTimeChange(parsed.first, parsed.second)
+                }
+            } else {
+                invalid = text.length == 5 && parsed == null
+            }
+        },
+        placeholder = { Text("HH:MM") },
+        supportingText = {
+            Text(
+                text = if (invalid) {
+                    Strings.notificationTimeInvalid
+                } else {
+                    Strings.notificationCustomHint
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (invalid) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        },
+        isError = invalid,
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { commit() })
+    )
 }

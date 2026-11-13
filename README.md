@@ -1,8 +1,4 @@
-# Huoleme_Win
-
-活了么软件Windows版本
-
-本仓库只包含 Windows 桌面端源码，Android 端不在本仓库。仓库根目录即 Gradle 工程，克隆后可直接构建。
+# 活了么 · Windows 桌面端
 
 「活了么」Android 版的 Windows 桌面迁移版本，采用 Kotlin + Compose Multiplatform Desktop。所有数据只保存在本机，**不依赖任何云服务器**。
 
@@ -127,7 +123,7 @@ build\dist\活了么\
 {
   "schema_version": 1,
   "app": "活了么",
-  "version": "1.3.6",
+  "version": "1.3.7 Dev",
   "first_launch_done": false,
   "settings": {
     "theme_mode": "CLASSIC_BLUE",
@@ -173,3 +169,10 @@ src/test/kotlin/com/huoleme/app/
 src/main/resources/
   icon.png / icon.ico          窗口与托盘图标
 ```
+
+## 开源说明
+
+- 需上传：`src/`、`build.gradle.kts`、`settings.gradle.kts`、`gradle.properties`、`gradle/wrapper/`、`gradlew`、`gradlew.bat`、`README.md`、`.gitignore`；若同时开源 Android 端，另加 `Android/`。
+- 不上传：`build/`（含 `dist/`、`output/` 等打包产物）、`.gradle/`、`.kotlin/`、`.tools/`（本地 JDK）、`.idea/`、`*.iml`、`local.properties`、日志文件、以及工作区里的私人对话记录 / 会话日志。
+- 本项目采用 MIT 许可证（见 `LICENSE`）。开源前请自行确认：联系作者链接（Telegram / WhatsApp / Teams）、下载更新网址、开发者密码哈希与升级 UUID 是否适合公开。
+- 用户数据（`%APPDATA%\Huoleme\data.json`）永远不会包含在仓库中。
