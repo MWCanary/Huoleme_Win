@@ -22,6 +22,12 @@ dependencies {
     implementation("org.jetbrains.compose.material:material-icons-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.2")
+    // Win32 access for the on-screen keyboard: Compose Desktop implements no
+    // UIA TextPattern, so Windows never learns that a text field has focus and
+    // never raises the touch keyboard on its own. The few calls needed to fix
+    // that (ShellExecute, EnumWindows, PostMessage, GetRawInputDeviceList) go
+    // through JNA rather than hand-written JNI.
+    implementation("net.java.dev.jna:jna:5.14.0")
 
     testImplementation(kotlin("test-junit5"))
     testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.11.4")
@@ -70,7 +76,16 @@ val runtimeJvmOptions = listOf(
     "-XX:-UsePerfData",
     // Only disables external diagnostic agents attaching to the process.
     "-XX:+DisableAttachMechanism",
+    // Software rasterisation instead of Direct3D/OpenGL. Skiko's GPU backend
+    // keeps a large driver-side heap plus back buffers alive for the whole
+    // session (~55 MB measured); the CPU backend draws the exact same pixels
+    // (identical text sharpness, verified pixel-by-pixel) at a fraction of the
+    // memory, and even cuts idle CPU because there is no swap-chain present.
+    // The window is small and mostly static, so CPU cost is negligible.
+    "-Dskiko.renderApi=SOFTWARE",
     "-Dsun.java2d.d3d=false",
+    "-Dsun.java2d.opengl=false",
+    "-Dsun.java2d.noddraw=true",
     "-Dkotlinx.coroutines.scheduler.core.pool.size=1",
     "-Dkotlinx.coroutines.scheduler.max.pool.size=1"
 )

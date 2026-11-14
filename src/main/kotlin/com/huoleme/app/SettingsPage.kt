@@ -86,6 +86,7 @@ import com.huoleme.app.theme.OrangePrimary
 import com.huoleme.app.theme.RedPrimary
 import com.huoleme.app.ui.BirthDateEditor
 import com.huoleme.app.ui.ColorCode
+import com.huoleme.app.ui.touchKeyboard
 import com.huoleme.app.ui.touchScrollable
 
 private data class ThemeOption(
@@ -332,7 +333,9 @@ fun SettingsPage(
         OutlinedTextField(
             value = testamentInput,
             onValueChange = { testamentInput = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .touchKeyboard(),
             minLines = 3,
             maxLines = 6,
             placeholder = { Text(Strings.testamentDefault) }
@@ -953,7 +956,9 @@ private fun CustomColorEditor(
                                 Text(Strings.colorCodeInvalid)
                             }
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .touchKeyboard()
                     )
                 }
                 OutlinedButton(
@@ -1209,7 +1214,9 @@ private fun NotificationTimeField(
         },
         isError = invalid,
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .touchKeyboard(),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { commit() })
     )

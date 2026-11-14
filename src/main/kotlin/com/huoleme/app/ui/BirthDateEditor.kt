@@ -65,7 +65,9 @@ fun BirthDateEditor(
                 placeholder = { Text("1995") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1.35f)
+                modifier = Modifier
+                    .weight(1.35f)
+                    .touchKeyboard()
             )
             OutlinedTextField(
                 value = month,
@@ -77,7 +79,9 @@ fun BirthDateEditor(
                 placeholder = { Text("1") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .touchKeyboard()
             )
             OutlinedTextField(
                 value = day,
@@ -89,7 +93,9 @@ fun BirthDateEditor(
                 placeholder = { Text("1") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .touchKeyboard()
             )
         }
 

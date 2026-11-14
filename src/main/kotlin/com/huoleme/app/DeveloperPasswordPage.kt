@@ -34,6 +34,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.huoleme.app.ui.touchKeyboard
 import com.huoleme.app.ui.touchScrollable
 
 /**
@@ -123,7 +124,9 @@ fun DeveloperPasswordPage(
                         imeAction = ImeAction.Done
                     ),
                     keyboardActions = KeyboardActions(onDone = { onUnlock() }),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .touchKeyboard()
                 )
 
                 if (passwordError) {

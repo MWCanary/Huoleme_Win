@@ -1,5 +1,7 @@
 package com.huoleme.app
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -7,8 +9,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
@@ -17,10 +23,13 @@ import androidx.compose.ui.window.rememberWindowState
 import com.huoleme.app.data.AppState
 import com.huoleme.app.desktop.AutoStart
 import com.huoleme.app.desktop.DesktopTray
+import com.huoleme.app.desktop.VirtualKeyboard
 import com.huoleme.app.ui.SwingFonts
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.Dimension
+import java.awt.event.WindowEvent
+import java.awt.event.WindowFocusListener
 import java.awt.GraphicsEnvironment
 import java.time.LocalDate
 import java.time.LocalTime
@@ -28,19 +37,16 @@ import javax.imageio.ImageIO
 import javax.swing.SwingUtilities
 
 /**
- * Two-tier startup to keep the resident (background / auto-start) memory tiny,
- * while still minimizing to the tray instead of quitting when the window closes.
+ * Two-tier startup.
  *
  *  - Background tier: a plain AWT tray icon + a reminder thread. No Compose, no
- *    Skia — this is all the resident process needs, so it stays around ~8 MB
- *    until the user actually opens the window.
- *  - UI tier: Compose Desktop's `application {}`, which loads Skia the moment a
- *    window is shown. It is only entered when the user opens the window (normal
- *    launch, or a "show" request from the tray / a 2nd instance).
+ *    Skia — this is all the resident process needs, so a never-opened auto-start
+ *    run stays around 77 MB.
+ *  - UI tier: Compose Desktop's `application {}`, entered only when a window is
+ *    shown (normal launch, tray click, or a 2nd instance).
  *
- * Closing the window sets the Compose `Window` to invisible (not disposed) so
- * `application {}` keeps running in the tray; clicking the tray re-shows it. The
- * window is only ever disposed when the user quits from the tray.
+ * Closing the window hides it (visible = false) so `application {}` keeps
+ * running and the tray stays responsive with no reinitialisation delay.
  */
 fun main(args: Array<String>) {
     // Must be first: a 2nd launch must not spin up AWT/Swing/Compose. It just
@@ -63,6 +69,7 @@ fun main(args: Array<String>) {
         onShowWindow = { requestShow() },
         onExit = {
             // The tray icon is removed by the OS when the process exits.
+            VirtualKeyboard.hide()
             kotlin.system.exitProcess(0)
         }
     )
@@ -92,11 +99,23 @@ fun main(args: Array<String>) {
  * is up it calls [showWindowRef] directly so the same click is instant.
  */
 private val requestedShow = java.util.concurrent.atomic.AtomicBoolean(false)
+
+/** Touched by the AWT/tray thread and read here, so it must be volatile. */
+@Volatile
 private var inUi = false
+
+@Volatile
 private var showWindowRef: (() -> Unit)? = null
 
 private fun requestShow() {
-    if (inUi) showWindowRef?.invoke() else requestedShow.set(true)
+    // Prefer the live UI (instant raise). If the UI is not up yet, fall back to
+    // the flag so main() enters the UI instead of losing the click.
+    val show = showWindowRef
+    if (inUi && show != null) {
+        show()
+    } else {
+        requestedShow.set(true)
+    }
 }
 
 /**
@@ -161,11 +180,9 @@ private fun runUi(appState: AppState, tray: DesktopTray) {
             autoStartStatus = result.message
         }
 
-        // The Window is always composed, but its visibility is toggled. This keeps
-        // `application {}` alive (so the process keeps running in the tray) while
-        // still letting the user close the window to the tray. Compose/Skia are
-        // only loaded once the UI tier is entered (on a show request), so the
-        // never-opened auto-start background stays tiny.
+        // The Window is always composed, but its visibility is toggled. This
+        // keeps `application {}` alive (so the process keeps running in the
+        // tray) while still letting the user close the window to the tray.
         remember { SwingFonts.install() }
 
         val screenConfig = GraphicsEnvironment.getLocalGraphicsEnvironment()
@@ -188,6 +205,7 @@ private fun runUi(appState: AppState, tray: DesktopTray) {
         Window(
             visible = windowVisible.value,
             onCloseRequest = {
+                VirtualKeyboard.hide()
                 if (appState.settings.minimizeToTray && tray.isInstalled) {
                     windowVisible.value = false // minimize to tray, keep running
                     if (!trayHintShown) {
@@ -206,18 +224,40 @@ private fun runUi(appState: AppState, tray: DesktopTray) {
             LaunchedEffect(Unit) {
                 appWindow.value = window
                 window.minimumSize = Dimension(390, 480)
+                // 切换到别的应用时收起触摸键盘，免得它一直盖在屏幕上。
+                window.addWindowFocusListener(object : WindowFocusListener {
+                    override fun windowGainedFocus(e: WindowEvent?) = Unit
+                    override fun windowLostFocus(e: WindowEvent?) = VirtualKeyboard.hide()
+                })
             }
             DisposableEffect(Unit) {
                 onDispose {
                     if (appWindow.value === window) appWindow.value = null
                 }
             }
-            HuolemeApp(
-                appState = appState,
-                tray = tray,
-                autoStartStatus = autoStartStatus,
-                windowWidth = windowState.size.width
-            )
+            // 窗口级监听：按下非输入框区域时收起触摸键盘（Compose 点空白处不会
+            // 清除输入框焦点，否则键盘会一直挂在屏幕上）。
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.type == PointerEventType.Press) {
+                                    VirtualKeyboard.onPointerPressed()
+                                }
+                            }
+                        }
+                    }
+            ) {
+                HuolemeApp(
+                    appState = appState,
+                    tray = tray,
+                    autoStartStatus = autoStartStatus,
+                    windowWidth = windowState.size.width
+                )
+            }
         }
     }
 }
